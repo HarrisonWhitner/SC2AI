@@ -1,5 +1,5 @@
 """
-My attempt at creating a simple AI bot for Starcraft 2 as the terran race
+My attempt at creating a simple AI bot for Starcraft 2 as the Terran race
 
 Author: Harrison Whitner
 Date: 01.24.19
@@ -15,9 +15,11 @@ from sc2.player import Bot, Computer
 from sc2.constants import *
 
 
-""" Code for my sc2 bot """
+""" Code for my SC2 Terran bot """
 
-class basicBot(sc2.BotAI):
+class basicTerranBot(sc2.BotAI):
+
+    # TODO: set up supply location set
 
     # executes every game step, calls each method necessary for the bot on each step
     async def on_step(self, iteration):
@@ -40,6 +42,7 @@ class basicBot(sc2.BotAI):
 
         # check if offensive units need to be built
 
+    # TODO: fix the two worker being queued problem
     # determines if workers should be built, adds them to base's queue if so
     async def build_workers(self):
 
@@ -60,6 +63,7 @@ class basicBot(sc2.BotAI):
                 for r in refineries:
                     max_workers_needed += r.ideal_harvesters
 
+            # TODO: remove print statement
             print(max_workers_needed)
 
             # checks that we can afford a worker and more are needed and enough supply exists
@@ -87,8 +91,8 @@ def main():
     sc2.run_game(
         # the map for the match
         sc2.maps.get("AbyssalReefLE"),
-        # list of players, first is my bot, second is an easy sc2 ai
-        [ Bot(Race.Terran, basicBot()), Computer(Race.Zerg, Difficulty.Easy) ],
+        # list of players, first is my bot, second is an easy SC2 AI
+        [ Bot(Race.Terran, basicTerranBot()), Computer(Race.Zerg, Difficulty.Easy) ],
         # set false to run as fast a possible
         realtime=True)
 
