@@ -1,5 +1,5 @@
 """
-My attempt at creating a simple AI bot for Starcraft 2 as the Terran race
+My attempt at creating a simple AI bot for Starcraft 2 as the Zerg race
 
 Author: Harrison Whitner
 Date: 01.24.19
