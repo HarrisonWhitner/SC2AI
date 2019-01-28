@@ -21,40 +21,28 @@ from sc2.constants import *
 
 class basicTerranBot(sc2.BotAI):
 
-    # executed at the start of the game, used to handle build order and actions that need to happen in a specific order
+    # called at the start of the game, used to handle build order
     # def on_start(self):
 
-
-    # !!! use iteration to keep track of how many times on_step has been called
-    # executes every game step, calls each method necessary for the bot on each step
+    # called every step, calls each method necessary for the bot
     async def on_step(self, iteration):
 
-        # spread out any idle or unused workers, if iteration is over 200
-        if iteration > 400: await self.distribute_workers()
-
-        # update the iteration class variable
-        self.iteration = iteration
-
-        # get the total amount of workers, important for the build order
-        self.total_worker_count = self.workers.amount
-
-        # get the total amount of depots
-        self.total_depot_count = self.units(SUPPLYDEPOT).amount
-
-        # check if workers need to be built
-        await self.build_workers()
+        # define any class variables
+        self.step = iteration
 
         # tasks to do on iteration 0 (at start of match)
         if iteration == 0:
 
             # create a set of the crucial supply depot locations
-            self.supply_locations = self.main_base_ramp.corner_depots | {self.main_base_ramp.depot_in_middle}
+            self.supply_init_loc = self.main_base_ramp.corner_depots # | {self.main_base_ramp.depot_in_middle}
 
-            # select a random worker to do the building of the first key buildings
-            self.first_building_worker = self.workers.random
+        # spread out any idle workers every 10 steps if expanded
+        if self.units(COMMANDCENTER).amount > 1 and iteration % 10 == 0:
+            await self.distribute_workers()
 
-            # send a random worker to the main base ramp
-            await self.do(self.first_building_worker.move(self.main_base_ramp.upper.pop()))
+        # check if workers need to be trained every other step (to avoid double queue bug)
+        if iteration % 2 == 0:
+            await self.train_workers()
 
         # check if vespene needs to be built on
 
@@ -62,29 +50,33 @@ class basicTerranBot(sc2.BotAI):
         await self.build_supply()
 
         # check if unit buildings need to be built
+        await self.build_unit_buildings()
 
-        # check if offensive units need to be built
+        # check if offensive units need to be trained
+        await self.train_offensive_units()
+
+        # check if we should expand
 
 
-    # TODO: fix the two worker being queued problem
-    # determines if workers should be built, adds them to center's queue if so
-    async def build_workers(self):
+    # determines if workers should be trained, adds them to center's queue if so
+    async def train_workers(self):
 
         # gets every command center that is not already doing something
         for commandCenter in self.units(COMMANDCENTER).ready.noqueue:
 
-            # TODO: make sure 10 spaces is a reasonable length
-            # find the amount workers within 10 spaces the current command center that are collecting minerals
-            cc_worker_count = self.workers.closer_than(10.0, commandCenter).collecting.amount
-
             # find if there are any refineries near the command center
             refineries = self.units(REFINERY).closer_than(10.0, commandCenter)
+
+            # find the amount workers assigned to the current command center
+            cc_worker_count = commandCenter.assigned_harvesters
 
             # find the max workers needed for this command center
             cc_worker_max_needed = commandCenter.ideal_harvesters
 
+            # if there are refineries, add their workers into the totals
             if len(refineries) > 0:
                 for r in refineries:
+                    cc_worker_count += r.assigned_harvesters
                     cc_worker_max_needed += r.ideal_harvesters
 
             # checks that we can afford a worker and more are needed and enough supply exists
@@ -93,26 +85,65 @@ class basicTerranBot(sc2.BotAI):
                 # adds a worker to the command center's queue
                 await self.do(commandCenter.train(SCV))
 
-
+    # TODO: come up with a better metric than just less than 2 supply
+    # TODO: remove print statements
     # determines if more depots need to be built, starts the build process if so
     async def build_supply(self):
 
-        # TODO: come up with a better metric than just less than 2 supply
+        # TODO: come up with a better metric than just less than 4 supply
         # checks the remaining supply, that we can afford a depot and that one is not already being made
-        if self.supply_left < 2 and self.can_afford(SUPPLYDEPOT) and not self.already_pending(SUPPLYDEPOT):
+        if self.supply_left <= 3 and self.can_afford(SUPPLYDEPOT) and not self.already_pending(SUPPLYDEPOT):
 
-            print('Building a depot at', self.supply_used, 'supply, on iteration', self.iteration, 'and time', self.time)
+            # TODO: remove print statement
+            print('basicTerranBot: Building a depot at', self.supply_used, 'supply, on step', self.step, 'and time', self.time)
 
-            # try to get depot location from list created at iteration 0
-            if len(self.supply_locations) > 0:
-                next_depot_location = self.supply_locations.pop()
+            # build depot at main ramp if not already blocked
+            if len(self.supply_init_loc) > 0:
+                next_depot_location = self.supply_init_loc.pop()
 
-            # once the crucial walling depots have been made, build further depots near the main ramp
+            # otherwise, build around the top of the main ramp
             else:
-                next_depot_location = self.main_base_ramp.upper2
+                next_depot_location = self.main_base_ramp.upper
+
+            # find a worker to use
+            ideal_worker = self.workers.prefer_close_to(next_depot_location).first
 
             # build depot at the next location
-            await self.build(SUPPLYDEPOT, near=next_depot_location)
+            await self.do(ideal_worker.build(SUPPLYDEPOT, next_depot_location))
+
+
+    async def build_unit_buildings(self):
+
+        # make sure the first depot is down
+        if self.units(SUPPLYDEPOT).amount > 0:
+
+            # builds barracks until there are 3, unless one is not already being built and it cannot be afforded
+            if self.units(BARRACKS).amount < 3 and not self.already_pending(BARRACKS) and self.can_afford(BARRACKS):
+
+                # gets the first barracks down on the ramp center
+                if self.units(BARRACKS).amount < 1:
+                    barracks_location = self.main_base_ramp.barracks_in_middle
+
+                # continues to build barracks near command center until there are 3 total
+                else:
+                    barracks_location = self.units(COMMANDCENTER).first
+
+                ideal_worker = self.workers.prefer_idle.prefer_close_to(barracks_location).first
+
+                await self.do(ideal_worker.build(BARRACKS, barracks_location))
+
+
+    # train units for army
+    async def train_offensive_units(self):
+
+        # if there is a barracks, train marines
+        if self.units(BARRACKS).exists:
+
+            for b in self.units(BARRACKS).ready.noqueue:
+
+                if self.can_afford(MARINE) and self.can_feed(MARINE):
+
+                    await self.do(b.train(MARINE))
 
 
 """ Code for running a match with my bot """
@@ -125,7 +156,7 @@ def main():
         # list of players, first is my bot, second is an easy SC2 AI
         [ Bot(Race.Terran, basicTerranBot()), Computer(Race.Zerg, Difficulty.Easy) ],
         # set false to run as fast a possible
-        realtime=True)
+        realtime=False)
 
 
 if __name__ == '__main__':
