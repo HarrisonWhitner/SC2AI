@@ -53,8 +53,8 @@ class basicZergBot(sc2.BotAI):
             {'taskType': 'BUILD', 'unitType': HATCHERY, 'condition': True, 'origin': self.hatchery_locations[0], 'destination': self.hatchery_locations[1]},
             # build a drone at main, send to collect minerals
             {'taskType': 'BUILD', 'unitType': DRONE, 'condition': True, 'origin': self.hatchery_locations[0], 'destination': self.state.units(MINERALFIELD).closest_to(self.hatchery_locations[0]).position},
-            # build extractor at main with drone from main
-            {'taskType': 'BUILD', 'unitType': EXTRACTOR, 'condition': True, 'origin': self.hatchery_locations[0], 'destination': self.state.vespene_geyser.closest_to(self.hatchery_locations[0]).position}, # maybe need to account for extractors on geysers
+            # build extractor at main with drone from main (selects a random geyser near main that does not have a extractor on it)
+            {'taskType': 'BUILD', 'unitType': EXTRACTOR, 'condition': True, 'origin': self.hatchery_locations[0], 'destination': [g for g in self.state.vespene_geyser.closer_than(10.0, self.hatchery_locations[0]) if not self.units(EXTRACTOR).closer_than(1.0, g).exists][0]},
             # constantly build workers now, activate train_workers
             # build a 1st queen at main once pool is ready, keep at main
             {'taskType': 'BUILD', 'unitType': QUEEN, 'condition': self.units(SPAWNINGPOOL).exists and self.units(SPAWNINGPOOL).first.is_ready, 'origin': self.hatchery_locations[0], 'destination': self.hatchery_locations[0]},
@@ -68,7 +68,7 @@ class basicZergBot(sc2.BotAI):
             # 1st queen at main moves to natural
             # research zergling speed at pool once have 100 gas
             # build 3rd queen at 2nd hatchery, keep at 2nd hatchery
-            {'taskType': 'BUILD', 'unitType': QUEEN, 'condition': self.units(HATCHERY).amount >= 2 and all(h.is_ready for h in self.hatcheries), 'origin': self.hatchery_locations[1], 'destination': self.hatchery_locations[0]},
+            {'taskType': 'BUILD', 'unitType': QUEEN, 'condition': self.units(HATCHERY).amount >= 2 and all(h.build_progress == 1 for h in self.hatcheries), 'origin': self.hatchery_locations[1], 'destination': self.hatchery_locations[0]},
             # move all zerglings at main to scout locations
             # build warren with drone at main once supply @ 44 (building at first overlord, since it spawns on the side farthest from minerals)
             {'taskType': 'BUILD', 'unitType': ROACHWARREN, 'condition': self.supply_used >= 36, 'origin': self.hatchery_locations[0], 'destination': self.units(OVERLORD).first.position}, # TODO: decide between roach or baneling
@@ -147,8 +147,17 @@ class basicZergBot(sc2.BotAI):
                     # check if the unit is a structure
                     if Attribute.Structure.value in self._game_data.units[self.current_task['unitType'].value].attributes:
 
-                        # build it at the destination (origin unused)
-                        result = await self.build(self.current_task['unitType'], near=self.current_task['destination'])
+                        # check if the structure is an extractor
+                        if self.current_task['unitType'] == EXTRACTOR:
+
+                            # build it at the destination (origin unused)
+                            result = await self.do(self.select_build_worker(self.current_task['origin']).build(self.current_task['unitType'], self.current_task['destination']))
+
+                        # otherwise it is not a extractor
+                        else:
+
+                            # build it at the destination (origin unused)
+                            result = await self.build(self.current_task['unitType'], near=self.current_task['destination'])
 
                     # otherwise the unit is character and needs supply
                     else:
@@ -157,7 +166,7 @@ class basicZergBot(sc2.BotAI):
                         if self.can_feed(self.current_task['unitType']):
 
                             # check if the unit is a queen
-                            if self.current_task['unitType'] == 'QUEEN':
+                            if self.current_task['unitType'] == QUEEN:
 
                                 # train the queen at the hatchery nearest origin (destination unused)
                                 result = await self.do(self.units(HATCHERY).closest_to(self.current_task['origin']).train(self.current_task['unitType']))
